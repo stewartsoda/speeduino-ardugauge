@@ -9,6 +9,8 @@
 #include "Numbers24pt7b.h"
 #include "splash.h"
 
+#define RPMLABELFONTSIZE 3
+
 PDQ_ST7735 tft;			// PDQ: create LCD object (using pins in "PDQ_ST7735_config.h")
 
 static bool setupFlagsNeeded = true;
@@ -59,9 +61,9 @@ void showRPM(int16_t rpm, int16_t min_rpm, int16_t max_rpm)
     // setup
     // draw overall gauge frame rectangle from (0,84) to (127,118)
     tft.drawRect(0,84, 127,34,0xFFFF);
-    // draw "RPM" at 3x font origin at (73,86) (86 is from 127 - 3*18)
-    tft.setCursor(74,86);
-    tft.setTextSize(3);
+    // draw "RPM" at 3x font origin at (73,86) (73 is from 127 - 3*18) (86 is from 110-letterHeight*scale) 
+    tft.setCursor(127-6*RPMLABELFONTSIZE*3,110-8*RPMLABELFONTSIZE*3);
+    tft.setTextSize(RPMLABELFONTSIZE);
     tft.setTextColor(0xFFFF);
     tft.print(F("RPM"));
     setupRpmNeeded = false;
@@ -69,8 +71,9 @@ void showRPM(int16_t rpm, int16_t min_rpm, int16_t max_rpm)
   // update
   // clear canvas
   // draw RPM bar with drawHbar
+  // bar is at (0,110), 128w, 8h total, 6h bar, bar width scaled between 0-127 with RPM
   int width = map(rpm,min_rpm,max_rpm,0,127);
-  drawHBar(0, 110, 128, 8, 6, width);
+  drawHBar(0, 109, 128, 9, 7, width);
   // draw RPM numbers:
   String s_rpm = String(rpm);
   // start drawing at 54-((rpm.Length()-1)*16)
