@@ -1,139 +1,113 @@
 #include "Arduino.h"
 #include "Pages.h"
 #include "Comms.h"
-#include <Adafruit_SSD1306.h>
+//#include <Adafruit_SSD1306.h>
+#include "PDQ_ST7735_config.h"
+#include <PDQ_FastPin.h>
+#include <PDQ_ST7735.h>
+#include <PDQ_GFX.h>
 #include "Numbers24pt7b.h"
 #include "splash.h"
 
-Adafruit_SSD1306 OLED(128, 64, &Wire, -1);
+PDQ_ST7735 tft;			// PDQ: create LCD object (using pins in "PDQ_ST7735_config.h")
+
+static bool setupFlagsNeeded = true;
+static bool setupRpmNeeded = true;
+static bool setupTopThirdNeeded = true;
+static bool setupMiddleThirdNeeded = true;
+static bool setupBottomThirdNeeded = true;
 
 void initDisplay()
 {
-  OLED.begin(SSD1306_SWITCHCAPVCC, 60);
-  OLED.setFont();
-  OLED.setTextColor(WHITE);
+  #if defined(ST7735_RST_PIN)	// reset like Adafruit does
+    Serial.println(F("Using hardware reset pin"));
+    FastPin<ST7735_RST_PIN>::setOutput();
+    FastPin<ST7735_RST_PIN>::hi();
+    FastPin<ST7735_RST_PIN>::lo();
+    delay(1);
+    FastPin<ST7735_RST_PIN>::hi();
+  #endif
+
+  tft.begin();  
+
+  tft.fillScreen(ST7735_BLACK);
+
   showSplash(F("ARDUGAUGE"));
   delay(1000);
 }
 
 void showSplash(Fstring message)
 {
-  OLED.clearDisplay();
-  OLED.drawBitmap((128 - splash1_width) / 2, (64 - splash1_height) / 2,
-                  splash1_data, splash1_width, splash1_height, 1);
+  tft.fillScreen(ST7735_BLACK);
+  tft.drawBitmap((128 - splash1_width) / 2, (64 - splash1_height) / 2,
+                  splash1_data, splash1_width, splash1_height, ST7735_BLUE);
   uint8_t max_char = strlen_PM(message);
   uint8_t offset = ((128 - 6 * max_char) / 2);
-  OLED.setCursor(offset, 56);
-  OLED.print(message);
-  OLED.display();
+  tft.setCursor(offset, 56);
+  tft.print(message);
 }
 
-void showNumeric(Fstring label, int16_t value, int16_t min_val, int16_t max_val, uint8_t decimal)
-{
 
+void showRPM(int16_t rpm, int16_t min_rpm, int16_t max_rpm)
+{
+  // need flag to determine setup or just update
+  // setup: draw overall gauge frame; draw "RPM"
+  // update: clear canvas; draw bar, draw bar vlines on canvas; paste canvas; draw "1234"
   // allocate character space
-  static char valString[22];
-  formatValue(valString, value, decimal);
-  uint8_t offset = centering(valString, 24, 128, maxChar(min_val, max_val, decimal));
 
-  OLED.clearDisplay();
-  OLED.setCursor(0, 0);
-  OLED.print(label);
-  OLED.setFont(&Numbers24pt7b);
-  OLED.setCursor(offset, 51);
-  OLED.print(valString);
-  OLED.setFont();
-  OLED.display();
-}
-
-void showBar(Fstring label, int16_t value, int16_t min_val, int16_t max_val, uint8_t decimal)
-{
-  // allocate character space
-  static char valString[STRING_LENGTH];
-  formatValue(valString, value, decimal);
-  uint8_t offset = centering(valString, 24, 128, maxChar(min_val, max_val, decimal));
-  uint8_t width = constrain(map(value, min_val, max_val, 0, 128), 0, 128);
-
-  OLED.clearDisplay();
-  OLED.setCursor(0, 0);
-  OLED.print(label);
-  OLED.setFont(&Numbers24pt7b);
-  OLED.setCursor(offset, 44);
-  OLED.print(valString);
-  OLED.setFont();
-  drawHBar(0, 50, 128, 14, 8, width);
-  OLED.display();
-}
-
-void show2Bar(Fstring label1, int16_t value1, int16_t min_val1, int16_t max_val1, uint8_t decimal1,
-              Fstring label2, int16_t value2, int16_t min_val2, int16_t max_val2, uint8_t decimal2)
-
-{
-
-  OLED.clearDisplay();
-  drawHalfBar(label1, value1, min_val1, max_val1, decimal1, 0);
-  drawHalfBar(label2, value2, min_val2, max_val2, decimal2, 1);
-
-  OLED.display();
-}
-
-void drawHalfBar(Fstring label, int16_t value, int16_t min_val, int16_t max_val, uint8_t decimal, uint8_t half)
-{
-  static char valString[22];
-  if (strlen_PM(label) != 0)
-  {
-    uint8_t offsetY = bitRead(half, 0) ? 33 : 0;
-    formatValue(valString, value, decimal);
-    uint8_t offset = centering(valString, 12, 128, maxChar(min_val, max_val, decimal));
-    uint8_t width = constrain(map(value, min_val, max_val, 0, 128), 0, 128);
-
-    OLED.setCursor(0, offsetY);
-    OLED.print(label);
-    OLED.setTextSize(2);
-    OLED.setCursor(offset, 9 + offsetY);
-    OLED.print(valString);
-    OLED.setTextSize(1);
-    drawHBar(0, 23 + offsetY, 128, 8, 4, width);
+  if (setupRpmNeeded) {
+    // setup
+    // draw overall gauge frame rectangle from (0,84) to (127,118)
+    tft.drawRect(0,84, 127,34,0xFFFF);
+    // draw "RPM" at 3x font origin at (73,86) (86 is from 127 - 3*18)
+    tft.setCursor(74,86);
+    tft.setTextSize(3);
+    tft.setTextColor(0xFFFF);
+    tft.print(F("RPM"));
+    setupRpmNeeded = false;
   }
+  // update
+  // clear canvas
+  // draw RPM bar with drawHbar
+  int width = map(rpm,min_rpm,max_rpm,0,127);
+  drawHBar(0, 110, 128, 8, 6, width);
+  // draw RPM numbers:
+  String s_rpm = String(rpm);
+  // start drawing at 54-((rpm.Length()-1)*16)
+  // draw thousands at (0,86)
+  tft.setTextSize(3);
+  tft.setTextColor(ST7735_WHITE,ST7735_BLACK);
+  tft.setCursor(55 - ((s_rpm.length()-1)*18),86);
+  tft.print(s_rpm);
 }
 
-void show4Numeric(Fstring label1, int16_t value1, int16_t min_val1, int16_t max_val1, uint8_t decimal1,
-                  Fstring label2, int16_t value2, int16_t min_val2, int16_t max_val2, uint8_t decimal2,
-                  Fstring label3, int16_t value3, int16_t min_val3, int16_t max_val3, uint8_t decimal3,
-                  Fstring label4, int16_t value4, int16_t min_val4, int16_t max_val4, uint8_t decimal4)
+void show3Bar(Fstring label1, int16_t value1, int16_t min_val1, int16_t max_val1, uint8_t decimal1,
+              Fstring label2, int16_t value2, int16_t min_val2, int16_t max_val2, uint8_t decimal2,
+              Fstring label3, int16_t value3, int16_t min_val3, int16_t max_val3, uint8_t decimal3)
 {
-
-  OLED.clearDisplay();
-  OLED.drawFastHLine(0, 31, 128, SSD1306_WHITE);
-  OLED.drawFastVLine(63, 0, 64, SSD1306_WHITE);
-
-  drawQuarter(label1, value1, min_val1, max_val1, decimal1, 0);
-  drawQuarter(label2, value2, min_val2, max_val2, decimal2, 1);
-  drawQuarter(label3, value3, min_val3, max_val3, decimal3, 2);
-  drawQuarter(label4, value4, min_val4, max_val4, decimal4, 3);
-
-  OLED.display();
+  drawThirdBar(label1, value1, min_val1, max_val1, decimal1, 0);
+  drawThirdBar(label2, value2, min_val2, max_val2, decimal2, 1);
+  drawThirdBar(label3, value3, min_val3, max_val3, decimal3, 2);
 }
 
-void drawQuarter(Fstring label, int16_t value, int16_t min_val, int16_t max_val, uint8_t decimal, uint8_t quad)
+void drawThirdBar(Fstring label, int16_t value, int16_t min_val, int16_t max_val, uint8_t decimal, uint8_t third)
 {
-  static char valString[22];
-  if (strlen_PM(label) != 0)
-  {
-    uint8_t offsetX = bitRead(quad, 0) ? 66 : 0;
-    uint8_t offsetY = bitRead(quad, 1) ? 34 : 0;
-    formatValue(valString, value, decimal);
-    uint8_t offset = centering(valString, 12, 62, maxChar(min_val, max_val, decimal));
+  // static char valString[22];
+  // if (strlen_PM(label) != 0)
+  // {
+  //   uint8_t offsetY = third*28; //top gauge starts at (0,0) and goes to (127,27), middle starts at (0,28) and goes to (127,55), bottom starts at (0,56) and goes to (127,83)
+  //   formatValue(valString, value, decimal);
+  //   uint8_t offset = centering(valString, 12, 128, maxChar(min_val, max_val, decimal));
+  //   uint8_t width = constrain(map(value, min_val, max_val, 0, 128), 0, 128);
 
-    OLED.setCursor(offsetX, offsetY);
-    OLED.print(label);
-    // OLED.setFont(&Numbers24pt7b);
-    OLED.setTextSize(2);
-    OLED.setCursor(offset + offsetX, 12 + offsetY);
-    OLED.print(valString);
-    // OLED.setFont();
-    OLED.setTextSize(1);
-  }
+  //   OLED.setCursor(0, offsetY);
+  //   OLED.print(label);
+  //   OLED.setTextSize(2);
+  //   OLED.setCursor(offset, 9 + offsetY);
+  //   OLED.print(valString);
+  //   OLED.setTextSize(1);
+  //   drawHBar(0, 23 + offsetY, 128, 8, 4, width);
+  // }
 }
 
 void showFlags(Fstring label1, bool value1,
@@ -141,22 +115,21 @@ void showFlags(Fstring label1, bool value1,
                Fstring label3, bool value3,
                Fstring label4, bool value4,
                Fstring label5, bool value5,
-               Fstring label6, bool value6,
-               Fstring label7, bool value7,
-               Fstring label8, bool value8)
+               Fstring label6, bool value6)
 {
-  OLED.clearDisplay();
+  //OLED.clearDisplay();
+  // flag boxes are
+  // (0,122) to (62,133), (64,122) to (127,133)
+  // (0,135) to (62,146), (64,135) to (127,146)
+  // (0,148) to (62,159), (64,148) to (127,159)
+  drawFlag(label1, value1, 1, 122);
+  drawFlag(label2, value2, 65, 122);
+  drawFlag(label3, value3, 1, 135);
+  drawFlag(label4, value4, 65, 135);
+  drawFlag(label5, value5, 1, 148);
+  drawFlag(label6, value6, 65, 148);
 
-  drawFlag(label1, value1, 1, 1);
-  drawFlag(label2, value2, 65, 1);
-  drawFlag(label3, value3, 1, 17);
-  drawFlag(label4, value4, 65, 17);
-  drawFlag(label5, value5, 1, 33);
-  drawFlag(label6, value6, 65, 33);
-  drawFlag(label7, value7, 1, 49);
-  drawFlag(label8, value8, 65, 49);
-
-  OLED.display();
+  //OLED.display();
 }
 
 void drawFlag(Fstring label, bool value, uint8_t x, uint8_t y, uint8_t w, uint8_t h)
@@ -167,100 +140,108 @@ void drawFlag(Fstring label, bool value, uint8_t x, uint8_t y, uint8_t w, uint8_
     uint8_t x_offset = ((w - 6 * max_char) / 2);
     uint8_t y_offset = (h - 8) / 2;
 
-    OLED.setCursor(x + x_offset, y + y_offset);
-    OLED.print(label);
-
-    OLED.setCursor(x, y);
-    if (value)
+    if (value) //flag is tripped
     {
-      OLED.fillRoundRect(x, y, w, h, 2, SSD1306_INVERSE);
+      //tft.fillRect(x, y, w, h, ST7735_WHITE);
+      tft.setTextColor(ST7735_BLACK,ST7735_WHITE);
     }
     else
     {
-      OLED.drawRoundRect(x, y, w, h, 2, SSD1306_WHITE);
-    }
+      tft.setTextColor(ST7735_WHITE,ST7735_BLACK);
+   }
+   tft.setTextSize(1);
+    tft.setCursor(x + x_offset, y + y_offset);
+    tft.print(label);
+    tft.drawRect(x, y, w, h, ST7735_WHITE);
   }
 }
 
-uint8_t maxChar(int32_t min_val, int32_t max_val, uint8_t decimal)
-{
-  static char buf[STRING_LENGTH];
-  uint8_t max_char = formatValue(buf, min_val, decimal);
-  max_char = max(formatValue(buf, max_val, decimal), max_char);
-  return max_char;
+void printFPS(uint32_t fps) {
+  tft.setCursor(0,0);
+  tft.setTextColor(ST7735_RED);
+  tft.setTextSize(1);
+  tft.print(fps);
 }
 
-uint8_t formatValue(char *buf, int32_t value, uint8_t decimal)
-{
-  // static char temp[STRING_LENGTH];
-  // clearBuffer(temp);
+// uint8_t maxChar(int32_t min_val, int32_t max_val, uint8_t decimal)
+// {
+//   static char buf[STRING_LENGTH];
+//   uint8_t max_char = formatValue(buf, min_val, decimal);
+//   max_char = max(formatValue(buf, max_val, decimal), max_char);
+//   return max_char;
+// }
 
-  clearBuffer(buf);
-  snprintf(buf, 22, "%d", value);
-  uint8_t len = strlen(buf);
+// uint8_t formatValue(char *buf, int32_t value, uint8_t decimal)
+// {
+//   // static char temp[STRING_LENGTH];
+//   // clearBuffer(temp);
 
-  if (decimal != 0)
-  {
-    uint8_t target = decimal + 1;
-    uint8_t numLen = len - ((value < 0) ? 1 : 0);
-    while (numLen < target)
-    {
-      for (uint8_t i = 0; i < numLen + 1; i++)
-      // if negative, skip negative sign
-      {
-        buf[len - i + 1] = buf[len - i];
-        buf[len - i] = '0';
-      }
-      buf[len + 1] = '\0';
-      numLen++;
-      len++;
-    }
-    // insert
-    for (uint8_t i = 0; i < decimal + 1; i++)
-    {
-      buf[len - i + 1] = buf[len - i];
-      buf[len - i] = '.';
-    }
-    // clearBuffer(buf);
-    // snprintf(buf, STRING_LENGTH, "%d", target);
-  }
-  return strlen(buf);
-}
+//   clearBuffer(buf);
+//   snprintf(buf, 22, "%d", value);
+//   uint8_t len = strlen(buf);
 
-uint8_t centering(char *buf, uint8_t c_width, uint8_t field_width, uint8_t max_char)
-{
-  if (max_char == 0)
-  {
-    max_char = strlen(buf);
-  }
-  return ((field_width - c_width * max_char) / 2 + (max_char - strlen(buf)) * c_width);
-}
+//   if (decimal != 0)
+//   {
+//     uint8_t target = decimal + 1;
+//     uint8_t numLen = len - ((value < 0) ? 1 : 0);
+//     while (numLen < target)
+//     {
+//       for (uint8_t i = 0; i < numLen + 1; i++)
+//       // if negative, skip negative sign
+//       {
+//         buf[len - i + 1] = buf[len - i];
+//         buf[len - i] = '0';
+//       }
+//       buf[len + 1] = '\0';
+//       numLen++;
+//       len++;
+//     }
+//     // insert
+//     for (uint8_t i = 0; i < decimal + 1; i++)
+//     {
+//       buf[len - i + 1] = buf[len - i];
+//       buf[len - i] = '.';
+//     }
+//     // clearBuffer(buf);
+//     // snprintf(buf, STRING_LENGTH, "%d", target);
+//   }
+//   return strlen(buf);
+// }
+
+// uint8_t centering(char *buf, uint8_t c_width, uint8_t field_width, uint8_t max_char)
+// {
+//   if (max_char == 0)
+//   {
+//     max_char = strlen(buf);
+//   }
+//   return ((field_width - c_width * max_char) / 2 + (max_char - strlen(buf)) * c_width);
+// }
 
 void drawHBar(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint8_t bar_h, uint8_t bar_w)
 {
-  uint8_t q0 = x;
-  uint8_t q1 = x + (w - 1) >> 2;
-  uint8_t q2 = x + (w - 1) >> 1;
-  uint8_t q3 = x + 3 * ((w - 1) >> 2);
-  uint8_t q4 = x + w - 1;
-  uint8_t bar_y = (h - bar_h - 1) / 2 + y;
+  uint8_t q0 = x; // start of first quarter, at x
+  uint8_t q1 = x + (w - 1) >> 2; // start of second quarter, at (x+w)/4
+  uint8_t q2 = x + (w - 1) >> 1; // start of third quarter, at (x+w)/2
+  uint8_t q3 = x + 3 * ((w - 1) >> 2); // start of fourth quarter
+  uint8_t q4 = x + w - 1; // end of fourth quarter
+  uint8_t bar_y = (h - bar_h - 1) / 2 + y; // y coordinate for the bar, at bottom of gauge, half the size of bar_h
 
-  OLED.drawFastVLine(q0, y, h, SSD1306_WHITE);
-  OLED.drawFastVLine(q1, y + h - 5, 4, SSD1306_WHITE);
-  OLED.drawFastVLine(q2, y + h - 5, 4, SSD1306_WHITE);
-  OLED.drawFastVLine(q2 + 1, y + h - 5, 4, SSD1306_WHITE);
-  OLED.drawFastVLine(q3, y + h - 5, 4, SSD1306_WHITE);
-  OLED.drawFastVLine(q4, y, h, SSD1306_WHITE);
-  OLED.drawFastHLine(x, y + h - 1, w, SSD1306_WHITE);
-  OLED.fillRect(x, bar_y, bar_w, bar_h, SSD1306_WHITE);
-  OLED.drawFastVLine(q0 + 1, bar_y, bar_h, SSD1306_BLACK);
-  OLED.drawFastVLine(q4 - 1, bar_y, bar_h, SSD1306_BLACK);
+  tft.drawFastVLine(q0, y, h, ST7735_WHITE); // draw left frame
+  tft.drawFastVLine(q1, y + h - 5, 4, ST7735_WHITE); // draw q1 tick
+  tft.drawFastVLine(q2, y + h - 5, 4, ST7735_WHITE); // draw q2 tick
+  tft.drawFastVLine(q2 + 1, y + h - 5, 4, ST7735_WHITE); // draw q2 tick
+  tft.drawFastVLine(q3, y + h - 5, 4, ST7735_WHITE); // draw q3 tick
+  tft.drawFastVLine(q4, y, h, ST7735_RED); // draw right frame
+  tft.drawFastHLine(x, y + h - 1, w, ST7735_WHITE); // draw bar bottom
+  tft.fillRect(x, bar_y, bar_w, bar_h, ST7735_WHITE); // draw bar
+  tft.drawFastVLine(q0 + 1, bar_y, bar_h, ST7735_BLACK);
+  tft.drawFastVLine(q4 - 1, bar_y, bar_h, ST7735_WHITE);
 }
 
-void clearBuffer(char *buf, uint8_t bufLen)
-{
-  for (uint8_t i = 0; i < bufLen; i++)
-  {
-    buf[i] = '\0';
-  }
-}
+// void clearBuffer(char *buf, uint8_t bufLen)
+// {
+//   for (uint8_t i = 0; i < bufLen; i++)
+//   {
+//     buf[i] = '\0';
+//   }
+// }

@@ -1,6 +1,6 @@
 {
     "configuration": "cpu=atmega328old",
     "board": "arduino:avr:nano",
-    "port": "/dev/cu.usbserial-1420",
+    "port": "COM7",
     "sketch": "software/ardugauge/ardugauge.ino"
 }
